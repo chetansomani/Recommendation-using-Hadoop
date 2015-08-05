@@ -1,0 +1,146 @@
+import java.io.IOException;
+import java.lang.Math;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class Recommendation {
+    
+    public static class MapperRecommend extends Mapper<LongWritable, Text, Text, Text> {
+        public void map(LongWritable key, Text value, Context output) 
+        throws IOException,InterruptedException{
+            String line;
+            String[] movieList;
+            String[] txt1;
+            String[] txt2;
+            try{
+                line = value.toString();
+                
+                movieList = line.split(";");
+                
+                int length = movieList.length;
+                
+                for(int i=0; i<length; i++)
+                {
+                     txt1 = movieList[i].split(",");
+                     for(int j=i+1; j<length;j++)
+                     {
+                          txt2 = movieList[j].split(",");
+                          output.write(new Text(txt1[0]+","+txt2[0]), new Text(txt1[1]+","+txt2[1]));
+                    }
+                }
+            }
+            catch(IOException exe){
+                System.out.print(exe);
+            }
+            finally{
+                line = null;
+                movieList = null;
+                txt1 = null;
+                txt2 = null;
+            }
+        }
+    }
+
+    public static class ReduceRecommend extends Reducer<Text, Text, Text, Text>{
+        
+        public void reduce(Text key, Iterable<Text> values, Context output,
+                Reporter reporter) throws IOException, InterruptedException {
+           String inVal = null;
+           try{
+               int count = 0;
+               
+               Iterable<Text> valDum = values;
+               
+               for(@SuppressWarnings("unused") Text look: values){
+                   count++;
+               }
+               
+               int[] movie1 = new int[count];
+               int[] movie2 = new int[count];
+               
+               int i=0;
+               for(Text val: valDum){
+                   inVal =  val.toString(); //Retrieving the values and storing them in the matrix.
+                   movie1[i] = Integer.parseInt(inVal.split(",")[0]);
+                   movie2[i] = Integer.parseInt(inVal.split(",")[1]);
+                   i++;
+               }
+               
+               double similarity = computeSimilarity(movie1, movie2);
+               
+               output.write(key, new Text(Double.toString(similarity)));
+           }
+           catch(IOException exe){
+                   System.out.print(exe);
+           }
+               finally{
+                   inVal = null;
+               }
+        }
+    }
+    
+    static double computeSimilarity(int[] x, int[] y){
+        if(x.length != y.length){
+            return 0f;
+        }
+
+        double numerator = getSumofProducts(x,y);
+
+
+        double denominator = (Math.sqrt(getSumofSquares(x)) * Math.sqrt(getSumofSquares(y)));
+
+
+        return (numerator/denominator);
+    }
+
+
+    static double getSumofSquares(int[] arr){
+        int sum = 0;
+
+        for(int i=0; i< arr.length; i++){
+            sum = sum + (arr[i]* arr[i]);
+        }
+
+        return sum;
+    }
+
+
+    static double getSumofProducts(int[] arr1, int[] arr2){
+        if(arr1.length != arr2.length){
+            return 0f;
+        }
+        
+        int sum = 0;
+        
+        for(int i=0; i< arr1.length; i++){
+            sum = sum + (arr1[i] * arr2[i]);
+        }
+
+        return sum;
+    }
+    
+
+    //Driver Class
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "ItemRecommendation");
+        job.setJarByClass(Recommendation.class);
+        job.setMapperClass(MapperRecommend.class);
+        job.setReducerClass(ReduceRecommend.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+        job.setNumReduceTasks(3);
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+      }
+}

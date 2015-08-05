@@ -1,0 +1,175 @@
+import java.io.IOException;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapred.Reporter;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class Recommendation {
+    
+    public static class MapperRecommend extends Mapper<LongWritable, Text, Text, Text> {
+        public void map(LongWritable key, Text value, Context output) 
+        throws IOException,InterruptedException{
+            String line;
+            String[] movieList;
+            String[] txt1;
+            String[] txt2;
+            try{
+                line = value.toString();
+                
+                movieList = line.split(";");
+                
+                int length = movieList.length;
+                
+                for(int i=0; i<length; i++)
+                {
+                     txt1 = movieList[i].split(",");
+                     for(int j=i+1; j<length;j++)
+                     {
+                          txt2 = movieList[j].split(",");
+                          output.write(new Text(txt1[0]+","+txt2[0]), new Text(txt1[1]+","+txt2[1]));
+                     }
+                }
+            }
+            catch(IOException exe){
+                System.out.print(exe);
+            }
+            finally{
+                line = null;
+                movieList = null;
+                txt1 = null;
+                txt2 = null;
+            }
+        }
+    }
+
+    public static class ReduceRecommend extends Reducer<Text, Text, Text, Text>{
+        
+        public void reduce(Text key, Iterable<Text> values, Context output,
+                Reporter reporter) throws IOException, InterruptedException {
+           String inVal = null;
+           try{
+               int count = 0;
+               
+               Iterable<Text> valDum = values;
+               
+               for(@SuppressWarnings("unused") Text look: values){
+                   count++;
+               }
+               
+               int[] movie1 = new int[count+1];
+               int[] movie2 = new int[count+1];
+               
+               //Initialize the movie arrays
+               for(int k=0; k<count+1; k++){
+                   movie1[k] = 0;
+                   movie2[k] = 0;
+               }
+               
+               int i=0;
+               for(Text val: valDum){
+                   if(val != null){
+                       inVal =  val.toString(); //Retrieving the values and storing them in the matrix.
+                       if(inVal.split(",").length > 1){
+                           movie1[i] = Integer.parseInt(inVal.split(",")[0]);
+                           movie2[i] = Integer.parseInt(inVal.split(",")[1]);
+                       }
+                    }
+                   i++;
+               }
+               
+               double similarity = jaccardSimilarity(movie1, movie2);
+               
+               output.write(key, new Text(Double.toString(similarity)));
+           }
+           catch(IOException exe){
+                   System.out.print(exe);
+           }
+               finally{
+                   inVal = null;
+               }
+        }
+    }
+    
+    static double jaccardSimilarity(int[] x, int[] y){
+        if(x.length != y.length){
+            return 0f;
+        }
+
+
+        double numerator = jaccardNumerator(x, y);
+
+
+        double denominator = jaccardDenominator(x, y);
+
+
+        return ((double) numerator/denominator);
+    }
+
+
+
+    static int jaccardNumerator(int[] x, int[] y){
+        if(x.length != y.length){
+            return 0;
+        }
+        
+        int sum = 0;
+
+
+        for(int i=0; i< x.length; i++){
+            sum = sum + minNumber(x[i], y[i]);
+        }
+
+
+        return sum;
+    }
+
+
+    static int jaccardDenominator(int[] x, int[] y){
+        if(x.length != y.length){
+            return 0;
+        }
+        
+        int sum = 0;
+
+
+        for(int i=0; i< x.length; i++){
+            sum = sum + maxNumber(x[i], y[i]);
+        }
+
+
+        return sum;
+    }
+
+
+    static int minNumber(int x, int y){
+        return (x < y) ? x : y;
+    }
+
+
+    static int maxNumber(int x, int y){
+        return (x > y) ? x : y;
+    }
+    
+
+    //Driver Class
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "JaccardRecommendation");
+        job.setJarByClass(Recommendation.class);
+        job.setMapperClass(MapperRecommend.class);
+        job.setReducerClass(ReduceRecommend.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+        job.setNumReduceTasks(3);
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+      }
+}
